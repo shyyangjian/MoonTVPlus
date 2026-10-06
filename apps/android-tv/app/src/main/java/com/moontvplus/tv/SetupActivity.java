@@ -35,7 +35,7 @@ public class SetupActivity extends Activity {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
 
         inputUrl = new EditText(this);
-        inputUrl.setHint("https://moontv.example.com");
+        inputUrl.setHint("https://ltv.860527.xyz:88");
         inputUrl.setHintTextColor(0xFF64748B);
         inputUrl.setTextColor(0xFFF8FAFC);
         inputUrl.setTextSize(18);

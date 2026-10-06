@@ -138,7 +138,7 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
     private static String buildTvUrl(String baseUrl) {
         String url = baseUrl == null ? "" : baseUrl.trim();
         if (url.isEmpty()) {
-            url = "https://moontv.example.com";
+            url = "https://ltv.860527.xyz:88";
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "https://" + url;
