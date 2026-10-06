@@ -187,6 +187,59 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
             return localRemoteServer == null ? -1 : localRemoteServer.getPort();
         }
 
+        @JavascriptInterface
+        public void sendKey(String key, String digit) {
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    injectKeyToPage(key, digit);
+                }
+            });
+        }
+
+    }
+
+    private void injectKeyToPage(final String key, final String digit) {
+        if (webView == null) return;
+        // 把物理按键翻译成前端 TVVirtualRemote 能识别的键盘事件
+        String keyName;
+        String digitVal = "";
+        switch (key) {
+            case "up": keyName = "ArrowUp"; break;
+            case "down": keyName = "ArrowDown"; break;
+            case "left": keyName = "ArrowLeft"; break;
+            case "right": keyName = "ArrowRight"; break;
+            case "ok": keyName = "Enter"; break;
+            case "back": keyName = "Escape"; break;
+            case "home": keyName = "Home"; break;
+            case "menu": keyName = "ContextMenu"; break;
+            case "digit":
+                digitVal = (digit == null || digit.isEmpty()) ? "0" : digit;
+                keyName = "Digit" + digitVal;
+                break;
+            default: keyName = key; break;
+        }
+        // 同时派发 keydown/keyup 到 activeElement、document、window 三处（前端在 window 上 capture 监听）
+        String js =
+            "(function(){" +
+            "var k=" + jsonQuote(keyName) + ";" +
+            "var d=" + jsonQuote(digitVal) + ";" +
+            "var target=document.activeElement||document;" +
+            "function mk(t){var e=new KeyboardEvent(t,{key:k,bubbles:true,cancelable:true,composed:true});" +
+            "try{Object.defineProperty(e,'keyCode',{get:function(){return 0;}});}" +
+            "catch(x){}" +
+            "return e;}" +
+            "target.dispatchEvent(mk('keydown'));" +
+            "window.dispatchEvent(mk('keydown'));" +
+            "target.dispatchEvent(mk('keyup'));" +
+            "window.dispatchEvent(mk('keyup'));" +
+            "})()";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private static String jsonQuote(String s) {
+        if (s == null) return "\"\"";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     private void injectLocalRemoteInfo() {
@@ -386,7 +439,11 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_DOWN) {
+        // 防抖：TV 遥控方向键会连续重复，只在按下时处理（不处理 repeat）
+        if (event.getAction() != KeyEvent.ACTION_DOWN || event.getRepeatCount() != 0) {
+            return super.onKeyDown(keyCode, event);
+        }
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
             // 长按 MENU 1.5s：进入设置页（改地址/证书开关）
             mainHandler.postDelayed(new Runnable() {
                 @Override
@@ -398,30 +455,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
             }, 1500L);
             return true;
         }
-        // 遥控器方向键/OK/返回/数字键：WebView 焦点时直接转发给页面内部焦点元素
-        if (webView != null && webView.hasFocus()) {
-            switch (keyCode) {
-                case KeyEvent.KEYCODE_DPAD_UP:
-                case KeyEvent.KEYCODE_DPAD_DOWN:
-                case KeyEvent.KEYCODE_DPAD_LEFT:
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
-                case KeyEvent.KEYCODE_DPAD_CENTER:
-                case KeyEvent.KEYCODE_ENTER:
-                case KeyEvent.KEYCODE_BACK:
-                case KeyEvent.KEYCODE_0:
-                case KeyEvent.KEYCODE_1:
-                case KeyEvent.KEYCODE_2:
-                case KeyEvent.KEYCODE_3:
-                case KeyEvent.KEYCODE_4:
-                case KeyEvent.KEYCODE_5:
-                case KeyEvent.KEYCODE_6:
-                case KeyEvent.KEYCODE_7:
-                case KeyEvent.KEYCODE_8:
-                case KeyEvent.KEYCODE_9:
-                    return webView.dispatchKeyEvent(event);
-                default:
-                    break;
-            }
+        // 方向键/OK/返回/数字键：绕过 WebView 焦点树，直接注入前端 TVVirtualRemote 键盘事件
+        String keyName = keyCodeToKey(keyCode);
+        if (keyName != null) {
+            LocalRemoteBridge bridge = new LocalRemoteBridge();
+            bridge.sendKey(keyName, keyCodeToDigit(keyCode));
+            return true;
         }
         return super.onKeyDown(keyCode, event);
     }
@@ -431,40 +470,62 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             mainHandler.removeCallbacksAndMessages(null);
         }
-        if (webView != null && webView.hasFocus()) {
-            switch (keyCode) {
-                case KeyEvent.KEYCODE_DPAD_UP:
-                case KeyEvent.KEYCODE_DPAD_DOWN:
-                case KeyEvent.KEYCODE_DPAD_LEFT:
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
-                case KeyEvent.KEYCODE_DPAD_CENTER:
-                case KeyEvent.KEYCODE_ENTER:
-                case KeyEvent.KEYCODE_BACK:
-                case KeyEvent.KEYCODE_0:
-                case KeyEvent.KEYCODE_1:
-                case KeyEvent.KEYCODE_2:
-                case KeyEvent.KEYCODE_3:
-                case KeyEvent.KEYCODE_4:
-                case KeyEvent.KEYCODE_5:
-                case KeyEvent.KEYCODE_6:
-                case KeyEvent.KEYCODE_7:
-                case KeyEvent.KEYCODE_8:
-                case KeyEvent.KEYCODE_9:
-                    return webView.dispatchKeyEvent(event);
-                default:
-                    break;
-            }
-        }
+        // keyup 不需要再注入（keydown 已触发焦点移动），交给 super
         return super.onKeyUp(keyCode, event);
+    }
+
+    private String keyCodeToKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP: return "up";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "down";
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "left";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "right";
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER: return "ok";
+            case KeyEvent.KEYCODE_BACK: return "back";
+            case KeyEvent.KEYCODE_HOME: return "home";
+            case KeyEvent.KEYCODE_MENU: return "menu";
+            case KeyEvent.KEYCODE_0:
+            case KeyEvent.KEYCODE_1:
+            case KeyEvent.KEYCODE_2:
+            case KeyEvent.KEYCODE_3:
+            case KeyEvent.KEYCODE_4:
+            case KeyEvent.KEYCODE_5:
+            case KeyEvent.KEYCODE_6:
+            case KeyEvent.KEYCODE_7:
+            case KeyEvent.KEYCODE_8:
+            case KeyEvent.KEYCODE_9:
+            case KeyEvent.KEYCODE_NUMPAD_0:
+            case KeyEvent.KEYCODE_NUMPAD_1:
+            case KeyEvent.KEYCODE_NUMPAD_2:
+            case KeyEvent.KEYCODE_NUMPAD_3:
+            case KeyEvent.KEYCODE_NUMPAD_4:
+            case KeyEvent.KEYCODE_NUMPAD_5:
+            case KeyEvent.KEYCODE_NUMPAD_6:
+            case KeyEvent.KEYCODE_NUMPAD_7:
+            case KeyEvent.KEYCODE_NUMPAD_8:
+            case KeyEvent.KEYCODE_NUMPAD_9:
+                return "digit";
+            default: return null;
+        }
+    }
+
+    private String keyCodeToDigit(int keyCode) {
+        if (keyCode >= KeyEvent.KEYCODE_0 && keyCode <= KeyEvent.KEYCODE_9) {
+            return String.valueOf(keyCode - KeyEvent.KEYCODE_0);
+        }
+        if (keyCode >= KeyEvent.KEYCODE_NUMPAD_0 && keyCode <= KeyEvent.KEYCODE_NUMPAD_9) {
+            return String.valueOf(keyCode - KeyEvent.KEYCODE_NUMPAD_0);
+        }
+        return "";
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && webView != null) {
-            // 窗口重新获得焦点（如全屏切换、返回键）时，强制焦点回到 WebView 页面
-            webView.requestFocusFromTouch();
-        }
+        // 焦点由前端 TVVirtualRemote 的 JS 焦点系统管理，native 层不干预，
+        // 避免 requestFocusFromTouch 把焦点钉死在触屏模式导致方向键失效
     }
 
     @Override
