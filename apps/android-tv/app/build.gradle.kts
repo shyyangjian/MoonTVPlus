@@ -8,7 +8,7 @@ fun propOrEnv(propName: String, envName: String, defaultValue: String): String {
         ?: defaultValue
 }
 
-val rawBaseUrl = propOrEnv("BASE_URL", "BASE_URL", "http://192.168.1.10:3000")
+val rawBaseUrl = propOrEnv("BASE_URL", "BASE_URL", "https://moontv.example.com")
 val appDisplayName = propOrEnv("APP_NAME", "APP_NAME", "MoonTVPlus TV")
 val versionNameValue = propOrEnv("VERSION_NAME", "VERSION_NAME", "1.0.0")
 val versionCodeValue = propOrEnv("VERSION_CODE", "VERSION_CODE", "1").toIntOrNull() ?: 1

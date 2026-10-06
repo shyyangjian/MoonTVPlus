@@ -50,7 +50,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         setContentView(root);
         setupWebView();
         setupLocalRemoteServer();
-        webView.loadUrl(withLocalRemoteHash(buildTvUrl(BuildConfig.BASE_URL)));
+        String baseUrl = Settings.getBaseUrl(this);
+        if (baseUrl.isEmpty()) {
+            startActivity(new android.content.Intent(this, SetupActivity.class));
+            return;
+        }
+        webView.loadUrl(withLocalRemoteHash(buildTvUrl(baseUrl)));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -78,7 +83,7 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         }
         settings.setUserAgentString(settings.getUserAgentString() + " MoonTVPlusAndroidTV WebView");
 
@@ -106,7 +111,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel();
+                // 默认严格校验；仅用户显式开启"信任自签证书"（私有 CA 环境）才放行
+                if (Settings.isSslTrustSelfSigned(MainActivity.this)) {
+                    handler.proceed();
+                } else {
+                    handler.cancel();
+                }
             }
         });
 
@@ -221,10 +231,10 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
     private static String buildTvUrl(String baseUrl) {
         String url = baseUrl == null ? "" : baseUrl.trim();
         if (url.isEmpty()) {
-            url = "http://192.168.1.10:3000";
+            url = "https://moontv.example.com";
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "http://" + url;
+            url = "https://" + url;
         }
         while (url.endsWith("/")) {
             url = url.substring(0, url.length() - 1);
@@ -267,6 +277,32 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         if (webView != null) {
             webView.onResume();
         }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_DOWN) {
+            long elapsed = event.getEventTime() - 2000L;
+            // 长按 MENU 1.5s：进入设置页（改地址/证书开关）
+            mainHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (localRemoteServer != null) localRemoteServer.stop();
+                    startActivity(new android.content.Intent(MainActivity.this, SetupActivity.class));
+                    finish();
+                }
+            }, 1500L);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            mainHandler.removeCallbacksAndMessages(null);
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override

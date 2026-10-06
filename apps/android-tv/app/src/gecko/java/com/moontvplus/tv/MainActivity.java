@@ -64,7 +64,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         session.open(runtime);
         geckoView.setSession(session);
         setupLocalRemoteServer();
-        session.loadUri(withLocalRemoteHash(buildTvUrl(BuildConfig.BASE_URL)));
+        String baseUrl = Settings.getBaseUrl(this);
+        if (baseUrl.isEmpty()) {
+            startActivity(new android.content.Intent(this, SetupActivity.class));
+            return;
+        }
+        session.loadUri(withLocalRemoteHash(buildTvUrl(baseUrl)));
     }
 
 
@@ -133,10 +138,10 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
     private static String buildTvUrl(String baseUrl) {
         String url = baseUrl == null ? "" : baseUrl.trim();
         if (url.isEmpty()) {
-            url = "http://192.168.1.10:3000";
+            url = "https://moontv.example.com";
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "http://" + url;
+            url = "https://" + url;
         }
         while (url.endsWith("/")) {
             url = url.substring(0, url.length() - 1);
@@ -145,6 +150,31 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
             return url;
         }
         return url + "/tv";
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_DOWN) {
+            // 长按 MENU 1.5s：进入设置页（改地址/证书开关）
+            mainHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (localRemoteServer != null) localRemoteServer.stop();
+                    startActivity(new android.content.Intent(MainActivity.this, SetupActivity.class));
+                    finish();
+                }
+            }, 1500L);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            mainHandler.removeCallbacksAndMessages(null);
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override
