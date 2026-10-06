@@ -27,6 +27,7 @@ import java.net.URLEncoder;
 public class MainActivity extends Activity implements RemoteCommandHandler {
     private FrameLayout root;
     private WebView webView;
+    private android.widget.TextView logOverlay;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private LocalRemoteServer localRemoteServer;
@@ -46,8 +47,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         );
 
+        // 1. 硬件加速（TV 视频播放几乎必开）
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+
         root = new FrameLayout(this);
         setContentView(root);
+        setupLogOverlay();
         setupWebView();
         setupLocalRemoteServer();
         String baseUrl = Settings.getBaseUrl(this);
@@ -96,17 +101,27 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
+                logDiag("onReceivedError " + request.getUrl() + " code=" + error.getErrorCode() + " " + error.getDescription());
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                super.onReceivedHttpError(view, request, response);
+                logDiag("onReceivedHttpError " + request.getUrl() + " status=" + response.getStatusCode());
             }
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                logDiag("pageStarted " + url);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                logDiag("pageFinished " + url);
                 injectLocalRemoteInfo();
+                injectWebViewDiagnostics();
             }
 
             @Override
@@ -171,6 +186,61 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
     private void setupLocalRemoteServer() {
         localRemoteServer = new LocalRemoteServer(this);
         localRemoteServer.start();
+    }
+
+    private void setupLogOverlay() {
+        logOverlay = new android.widget.TextView(this);
+        logOverlay.setBackgroundColor(0xCC000000);
+        logOverlay.setTextColor(0xFFFFFFFF);
+        logOverlay.setTextSize(10);
+        logOverlay.setPadding(16, 8, 16, 8);
+        logOverlay.setVisibility(View.GONE);
+        logOverlay.setMaxLines(4);
+        logOverlay.setEllipsize(android.text.TextUtils.TruncateAt.START);
+        root.addView(logOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ));
+    }
+
+    private final java.util.LinkedList<String> logQueue = new java.util.LinkedList<String>();
+
+    private void logDiag(final String msg) {
+        logQueue.addLast(msg);
+        while (logQueue.size() > 6) logQueue.removeFirst();
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (logOverlay == null) return;
+                StringBuilder sb = new StringBuilder();
+                for (String s : logQueue) {
+                    sb.append(s).append("\n");
+                }
+                logOverlay.setText(sb.toString().trim());
+                logOverlay.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    private void injectWebViewDiagnostics() {
+        if (webView == null) return;
+        String script = "(function(){" +
+            "var ua=navigator.userAgent;" +
+            "var v=ua.match(/Chrome\\/([0-9]+)\\.|Android WebView/);" +
+            "var chromeVer=v?ua.split('Chrome/')[1].split(' ')[0]:'?';" +
+            "var hasMedia='MediaSource' in window;" +
+            "var hasHls='Hls' in window;" +
+            "var hasWebCodecs='WebCodecs' in window;" +
+            "var hasWasm=('WebAssembly' in window);" +
+            "var gpu='webgpu' in window;" +
+            "document.title='[TV:'+chromeVer+' MS:'+hasMedia+' WC:'+hasWebCodecs+' WASM:'+hasWasm+' GPU:'+gpu+' '+document.title];'" +
+            "})();" +
+            "document.title";
+        webView.evaluateJavascript(script, new android.webkit.ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                logDiag("diag " + value);
+            }
+        });
     }
 
     private int keyCodeForRemoteKey(String key, String digit) {
