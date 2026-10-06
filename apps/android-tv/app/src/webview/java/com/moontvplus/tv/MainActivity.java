@@ -70,6 +70,16 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.requestFocus();
+        // 焦点保持：一旦 WebView 拿到焦点就锁住，避免 DPAD 时焦点漂移到系统层
+        webView.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    v.postDelayed(() -> v.requestFocus(), 100);
+                }
+            }
+        });
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.addJavascriptInterface(new LocalRemoteBridge(), "MoonTVLocalRemote");
         root.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -81,8 +91,12 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
+        // 关键修复：锁 viewport 为 1080p，让 CSS 渲染和电视屏幕对齐
+        // 不锁的话 WebView 按默认 980px 宽渲染，页面被缩小到左上角，遥控焦点坐标全错
+        settings.setLoadWithOverviewMode(false);
+        settings.setUseWideViewPort(false);
+        // 注入 1920 宽 CSS viewport（1080p TV 标准），页面按 1920px 设计并等比缩放填满
+        settings.setSupportMultipleWindows(false);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setSupportZoom(false);
@@ -123,6 +137,7 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
                 logDiag("pageFinished " + url);
                 injectLocalRemoteInfo();
                 injectWebViewDiagnostics();
+                injectLockedViewport();
             }
 
             @Override
@@ -220,6 +235,25 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
                 logOverlay.setVisibility(View.VISIBLE);
             }
         });
+    }
+
+    private void injectLockedViewport() {
+        if (webView == null) return;
+        // 强制 CSS viewport 为 1920px 宽，让页面按 1080p 设计并填满屏幕
+        String script = "(function(){" +
+            "var d=document;" +
+            "if(!d.querySelector('meta[name=viewport]')){" +
+                "var m=d.createElement('meta');m.name='viewport';" +
+                "m.content='width=1920,initial-scale=1,user-scalable=no';" +
+                "d.head.appendChild(m);" +
+            "}" +
+            "d.documentElement.style.width='1920px';" +
+            "d.body.style.width='1920px';" +
+            "d.body.style.minWidth='1920px';" +
+            "d.body.style.height='1080px';" +
+            "d.body.style.overflow='hidden';" +
+            "})()";
+        webView.evaluateJavascript(script, null);
     }
 
     private void injectWebViewDiagnostics() {
@@ -353,7 +387,6 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_DOWN) {
-            long elapsed = event.getEventTime() - 2000L;
             // 长按 MENU 1.5s：进入设置页（改地址/证书开关）
             mainHandler.postDelayed(new Runnable() {
                 @Override
@@ -365,6 +398,31 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
             }, 1500L);
             return true;
         }
+        // 遥控器方向键/OK/返回/数字键：WebView 焦点时直接转发给页面内部焦点元素
+        if (webView != null && webView.hasFocus()) {
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_BACK:
+                case KeyEvent.KEYCODE_0:
+                case KeyEvent.KEYCODE_1:
+                case KeyEvent.KEYCODE_2:
+                case KeyEvent.KEYCODE_3:
+                case KeyEvent.KEYCODE_4:
+                case KeyEvent.KEYCODE_5:
+                case KeyEvent.KEYCODE_6:
+                case KeyEvent.KEYCODE_7:
+                case KeyEvent.KEYCODE_8:
+                case KeyEvent.KEYCODE_9:
+                    return webView.dispatchKeyEvent(event);
+                default:
+                    break;
+            }
+        }
         return super.onKeyDown(keyCode, event);
     }
 
@@ -373,7 +431,40 @@ public class MainActivity extends Activity implements RemoteCommandHandler {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             mainHandler.removeCallbacksAndMessages(null);
         }
+        if (webView != null && webView.hasFocus()) {
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_BACK:
+                case KeyEvent.KEYCODE_0:
+                case KeyEvent.KEYCODE_1:
+                case KeyEvent.KEYCODE_2:
+                case KeyEvent.KEYCODE_3:
+                case KeyEvent.KEYCODE_4:
+                case KeyEvent.KEYCODE_5:
+                case KeyEvent.KEYCODE_6:
+                case KeyEvent.KEYCODE_7:
+                case KeyEvent.KEYCODE_8:
+                case KeyEvent.KEYCODE_9:
+                    return webView.dispatchKeyEvent(event);
+                default:
+                    break;
+            }
+        }
         return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && webView != null) {
+            // 窗口重新获得焦点（如全屏切换、返回键）时，强制焦点回到 WebView 页面
+            webView.requestFocusFromTouch();
+        }
     }
 
     @Override
