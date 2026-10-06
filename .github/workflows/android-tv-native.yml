@@ -1,0 +1,53 @@
+name: Build Native TV APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: '服务端 Base URL'
+        required: true
+        default: 'https://ltv.860527.xyz:88'
+      app_name:
+        description: '应用名称'
+        required: true
+        default: 'MoonTV Plus TV'
+      version_name:
+        description: '版本号'
+        required: false
+        default: '1.0.0'
+      version_code:
+        description: '版本代码'
+        required: false
+        default: '1'
+
+jobs:
+  build:
+    name: Build Native TV APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build APK
+        working-directory: apps/android-tv
+        run: |
+          gradle :tv-native:app:assembleDebug \
+            -PBASE_URL="${{ inputs.base_url }}"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontvplus-tv-native-debug
+          path: apps/android-tv/tv-native/app/build/outputs/apk/debug/*.apk

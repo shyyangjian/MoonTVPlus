@@ -11,9 +11,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://maven.mozilla.org/maven2/")
     }
 }
 
 rootProject.name = "MoonTVPlusAndroidTV"
 include(":app")
+include(":tv-native:app")
