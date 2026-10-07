@@ -13,8 +13,6 @@ import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.util.C
-import com.google.android.exoplayer2.util.C
 import com.moontvplus.tvapp.data.VideoDetail
 import com.moontvplus.tvapp.data.VideoItem
 import com.moontvplus.tvapp.util.App
@@ -52,7 +50,7 @@ class PlayScreen(
         playerView = PlayerView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             useController = false
-            resizeMode = C.RESIZE_MODE_FIT
+            resizeMode = androidx.media3.exoplayer.util.C.RESIZE_MODE_FIT
         }
         root.addView(playerView)
 
@@ -110,7 +108,7 @@ class PlayScreen(
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    statusLabel.text = "播放失败：" + (error.localMessage ?: "未知错误")
+                    statusLabel.text = "播放失败：" + (error.localEx?.toString() ?: "未知错误")
                     statusLabel.setTextColor(Color.parseColor("#FF6B6B"))
                 }
                 override fun onIsPlayingChanged(isPlayingNow: Boolean) {
