@@ -74,30 +74,39 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
     private fun load() {
         loading.visibility = View.VISIBLE
         scope.launch {
-            val (sections, error) = withContext(Dispatchers.IO) {
+            val (sections, error, needReauth) = withContext(Dispatchers.IO) {
                 val list = mutableListOf<HomeSection>()
                 var err: String? = null
+                var reauth = false
                 val kinds = listOf("movie" to "热门电影", "tv" to "剧集", "anime" to "动漫")
                 for ((kind, label) in kinds) {
-                    val items = try {
-                        App.client.douban(kind, "热门", 12)
-                    } catch (e: Exception) {
-                        err = "${label} 加载失败：" + (e.message ?: "网络错误"); emptyList()
-                    }
+                    val (items, e, r) = App.client.doubanSafe(kind, "热门", 12)
+                    if (r) reauth = true
+                    err = e ?: err
                     if (items.isNotEmpty()) list.add(HomeSection(label, items))
                 }
-                list to err
+                list to err to reauth
             }
             loading.visibility = View.GONE
+            if (needReauth) {
+                statusView.text = "登录已失效，请重新登录"
+                statusView.setTextColor(Color.parseColor("#FF6B6B"))
+                statusView.visibility = View.VISIBLE
+                mainHandler.postDelayed({
+                    if (statusView.visibility == View.VISIBLE) {
+                        App.logout()
+                    }
+                }, 2000L)
+                return@launch
+            }
             if (sections.isEmpty()) {
-                // 有错误就显示原因，否则提示后台没配源
                 statusView.text = error ?: "暂无数据（后台请至少配置一个影视源 / 豆瓣源）"
+                statusView.setTextColor(if (error != null) Color.parseColor("#FF6B6B") else Color.parseColor("#AAAAFF"))
                 statusView.visibility = View.VISIBLE
                 return@launch
             }
             statusView.visibility = View.GONE
             buildRows(sections)
-            // 关键：首行第一个海报请求焦点，让遥控方向键从此生效
             mainHandler.postDelayed({
                 firstFocusable()?.requestFocus()
             }, 120L)

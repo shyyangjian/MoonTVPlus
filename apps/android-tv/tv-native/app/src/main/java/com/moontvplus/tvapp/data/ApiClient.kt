@@ -72,14 +72,20 @@ class ApiClient(private var baseUrl: String) {
             if (code in 200..299) {
                 val json = JSONObject(resp)
                 if (json.optBoolean("ok", false)) {
-                    // 优先取 response 里的 token（服务端把它作为 auth cookie 值返回）
+                    // 优先取 response body 里的 token（服务端 buildLoginResponse 把完整 cookie 值放这里）
                     authToken = json.optString("token", "").ifEmpty {
-                        // 兜底：从 Set-Cookie 头解析 auth
+                        // 兜底：从 Set-Cookie 头解析完整的 auth cookie 值
                         conn.getHeaderFields()["Set-Cookie"]?.firstOrNull()
-                            ?.substringAfter("auth=")?.substringBefore(';') ?: ""
+                            ?.substringAfter("auth=")?.substringBefore(";")?.trim() ?: ""
                     }
-                    isLoggedIn = true
-                    loginError = null
+                    // 验证 token 非空才算登录成功（空 token 会导致后续 401）
+                    if (authToken.isNullOrBlank()) {
+                        isLoggedIn = false
+                        loginError = "登录成功但未获取到 token（服务端未返回凭证）"
+                    } else {
+                        isLoggedIn = true
+                        loginError = null
+                    }
                 } else {
                     isLoggedIn = false
                     loginError = json.optString("error", json.optString("message", "登录被拒"))
@@ -129,6 +135,12 @@ class ApiClient(private var baseUrl: String) {
 
     /** 首页：按类型拉区块（对齐前端 /api/douban?type=..&tag=..&pageSize=..） */
     fun douban(type: String, tag: String, pageSize: Int = 12): List<VideoItem> {
+        val (items, _, _) = doubanSafe(type, tag, pageSize)
+        return items
+    }
+
+    /** 带错误反馈的豆瓣拉取：返回 (items, 错误信息, 是否需重新登录) */
+    fun doubanSafe(type: String, tag: String, pageSize: Int = 12): Triple<List<VideoItem>, String?, Boolean> {
         return try {
             val url = buildUrl("api/douban", mapOf(
                 "type" to type,
@@ -136,7 +148,12 @@ class ApiClient(private var baseUrl: String) {
                 "pageSize" to pageSize.toString()
             ))
             val result = httpGet(url)
-            if (!result.success) return emptyList()
+            if (!result.success) {
+                return Triple(emptyList(),
+                    if (result.code == 401) "鉴权失败（401），需重新登录"
+                    else "豆瓣接口 HTTP ${result.code}",
+                    result.code == 401)
+            }
             val trimmed = result.body.trim()
             val arr: JSONArray = if (trimmed.startsWith("[")) {
                 JSONArray(trimmed)
@@ -147,10 +164,13 @@ class ApiClient(private var baseUrl: String) {
                     ?: json.optJSONArray("results")
                     ?: JSONArray()
             }
-            if (arr.length() > 0) return parseItems(arr)
-            parseItems(JSONArray(result.body))
+            if (arr.length() > 0) {
+                Triple(parseItems(arr), null, false)
+            } else {
+                Triple(emptyList(), null, false)
+            }
         } catch (e: Exception) {
-            emptyList()
+            Triple(emptyList(), "网络错误：" + (e.message ?: ""), false)
         }
     }
 
