@@ -50,7 +50,8 @@ class PlayScreen(
         playerView = PlayerView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             useController = false
-            resizeMode = androidx.media3.exoplayer.util.C.RESIZE_MODE_FIT
+            // RESIZE_MODE_FIT = 2 in ExoPlayer2
+            resizeMode = 2
         }
         root.addView(playerView)
 
@@ -108,7 +109,7 @@ class PlayScreen(
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    statusLabel.text = "播放失败：" + (error.localEx?.toString() ?: "未知错误")
+                    statusLabel.text = "播放失败（错误码 ${error.errorCodeName}）"
                     statusLabel.setTextColor(Color.parseColor("#FF6B6B"))
                 }
                 override fun onIsPlayingChanged(isPlayingNow: Boolean) {
