@@ -78,7 +78,8 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
                 val list = mutableListOf<HomeSection>()
                 var err: String? = null
                 var reauth = false
-                val kinds = listOf("movie" to "热门电影", "tv" to "剧集", "anime" to "动漫")
+                // /api/douban 只支持 type=movie / type=tv（传其他值会 400）
+                val kinds = listOf("movie" to "热门电影", "tv" to "剧集")
                 for ((kind, label) in kinds) {
                     val (items, e, r) = App.client.doubanSafe(kind, "热门", 12)
                     if (r) reauth = true
