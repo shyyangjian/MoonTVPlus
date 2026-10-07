@@ -1,7 +1,6 @@
 package com.moontvplus.tvapp.util
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.moontvplus.tvapp.data.ApiClient
 import com.moontvplus.tvapp.data.PlayRecord
 import kotlinx.coroutines.CoroutineScope
@@ -14,10 +13,13 @@ object App {
     lateinit var client: ApiClient
         private set
     var baseUrl: String = ""
-    private lateinit var ctx: Context
+    lateinit var ctx: Context
+        private set
+    private var ctxReady = false
 
     fun init(context: Context, defaultUrl: String) {
         ctx = context.applicationContext
+        ctxReady = true
         val prefs = ctx.getSharedPreferences("moontv", 0)
         val savedUrl = prefs.getString("base_url", defaultUrl) ?: defaultUrl
         baseUrl = savedUrl
@@ -27,18 +29,22 @@ object App {
         if (prefs.getBoolean("logged_in", false)) client.markLoggedIn()
     }
 
-    /** 供 Activity 在 init 之前预存 context */
+    /** 供 Activity 在 init 之前预存 context（login 前调用） */
     fun attach(context: Context) {
-        if (ctx == null || !::ctx.isInitialized) ctx = context.applicationContext
+        if (!ctxReady) {
+            ctx = context.applicationContext
+            ctxReady = true
+        }
     }
 
     fun login(username: String?, password: String, onResult: (Boolean, String?) -> Unit) {
+        attach(ctx)
         CoroutineScope(Dispatchers.IO).launch {
             val ok = client.login(username, password)
             val prefs = ctx.getSharedPreferences("moontv", 0)
             if (ok) {
                 prefs.edit()
-                    .putString("auth_token", client.currentAuth)
+                    .putString("auth_token", client.currentAuth ?: "")
                     .putBoolean("logged_in", true)
                     .apply()
             }
@@ -55,6 +61,7 @@ object App {
     }
 
     fun saveUrl(url: String) {
+        if (!ctxReady) return
         ctx.getSharedPreferences("moontv", 0).edit().putString("base_url", url).apply()
         client.setBaseUrl(url)
         baseUrl = url
@@ -67,7 +74,6 @@ object App {
     fun savePlayRecord(record: PlayRecord) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val client = com.moontvplus.tvapp.data.ApiClient(baseUrl)
                 client.savePlayRecord(record)
             } catch (_: Exception) {}
         }
@@ -75,7 +81,6 @@ object App {
 
     fun getContinueWatching(): List<PlayRecord> {
         return runCatching {
-            val client = com.moontvplus.tvapp.data.ApiClient(baseUrl)
             client.getContinueWatching()
         }.getOrDefault(emptyList())
     }
