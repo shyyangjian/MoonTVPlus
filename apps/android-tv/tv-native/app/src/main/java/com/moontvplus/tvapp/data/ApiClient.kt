@@ -1,7 +1,5 @@
 package com.moontvplus.tvapp.data
 
-import java.net.CookieManager
-import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -10,12 +8,10 @@ import org.json.JSONObject
 
 /**
  * 轻量 HTTP 客户端。
- * - 登录走 POST /api/login，服务端种 auth cookie（Set-Cookie）
- * - 后续请求用 CookieManager 自动带 cookie，鉴权靠 cookie
+ * 登录走 POST /api/login，服务端返回 { ok:true, token:<auth cookie 值> }，
+ * 后续所有请求带 "Cookie: auth=<token>" 完成鉴权。
  */
 class ApiClient(private var baseUrl: String) {
-
-    private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
 
     init {
         baseUrl = normalize(baseUrl)
@@ -24,22 +20,9 @@ class ApiClient(private var baseUrl: String) {
     @Volatile var isLoggedIn: Boolean = false
         private set
     @Volatile var loginError: String? = null
-    @Volatile var currentAuth: String? = null
 
-    fun markLoggedIn() {
-        isLoggedIn = true
-    }
-
-    fun restoreAuth(cookie: String) {
-        currentAuth = cookie
-        val cookies = cookie.split(";").map { it.trim() }
-        cookies.forEach { c ->
-            val name = c.substringBefore("=", "")
-            val value = c.substringAfter("=", "").substringBefore(" ")
-            if (name.isNotEmpty()) requestCookies[name] = value
-        }
-        isLoggedIn = true
-    }
+    /** 鉴权 token（登录成功后服务端给的 auth cookie 值） */
+    @Volatile private var authToken: String? = null
 
     fun setBaseUrl(url: String) {
         baseUrl = normalize(url)
@@ -64,7 +47,7 @@ class ApiClient(private var baseUrl: String) {
         return full
     }
 
-    /** 登录：POST /api/login，成功则维护 cookie 供后续请求鉴权 */
+    /** 登录：POST /api/login，成功返回 token，后续请求带 Cookie: auth=token */
     fun login(username: String?, password: String): Boolean {
         return try {
             val url = buildUrl("api/login")
@@ -86,20 +69,21 @@ class ApiClient(private var baseUrl: String) {
             val resp = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.readText()
 
-            // 把 Set-Cookie 存进内存，后续请求自动带上
-            try {
-                val cookies = conn.getHeaderFields()["Set-Cookie"]
-                cookies?.forEach { cookieStr ->
-                    val name = cookieStr.substringBefore('=', "")
-                    val value = cookieStr.substringAfter('=', "").substringBefore(';')
-                    sessionCookies[name] = value
-                    requestCookies[name] = value
-                }
-            } catch (ignored: Exception) {}
-
             if (code in 200..299) {
-                isLoggedIn = true
-                loginError = null
+                val json = JSONObject(resp)
+                if (json.optBoolean("ok", false)) {
+                    // 优先取 response 里的 token（服务端把它作为 auth cookie 值返回）
+                    authToken = json.optString("token", "").ifEmpty {
+                        // 兜底：从 Set-Cookie 头解析 auth
+                        conn.getHeaderFields()["Set-Cookie"]?.firstOrNull()
+                            ?.substringAfter('auth=')?.substringBefore(';') ?: ""
+                    }
+                    isLoggedIn = true
+                    loginError = null
+                } else {
+                    isLoggedIn = false
+                    loginError = json.optString("error", json.optString("message", "登录被拒"))
+                }
             } else {
                 isLoggedIn = false
                 loginError = "HTTP $code: ${resp?.take(200)}"
@@ -112,71 +96,21 @@ class ApiClient(private var baseUrl: String) {
         }
     }
 
-    /** 保存播放进度：POST /api/watch-history 或存本地 */
-    fun savePlayRecord(record: PlayRecord) {
-        try {
-            val url = buildUrl("api/watch-history/save")
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("User-Agent", "MoonTVNativeTV/1.0")
-            val cookieHeader = requestCookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
-            if (cookieHeader.isNotEmpty()) conn.setRequestProperty("Cookie", cookieHeader)
-            val body = JSONObject().apply {
-                put("source", record.source)
-                put("id", record.id)
-                put("episodeIndex", record.episodeIndex)
-                put("playTimeMs", record.playTimeMs)
-                put("totalMs", record.totalMs)
-                put("title", record.title)
-            }.toString()
-            conn.outputStream.write(body.toByteArray())
-            conn.responseCode
-            conn.disconnect()
-        } catch (_: Exception) {}
-    }
-
-    /** 获取继续观看列表：GET /api/watch-history */
-    fun getContinueWatching(): List<PlayRecord> {
-        return try {
-            val url = buildUrl("api/watch-history")
-            val result = httpGet(url)
-            if (!result.success) return emptyList()
-            val json = JSONObject(result.body)
-            val arr = if (json.has("list")) json.getJSONArray("list")
-            else if (json.has("items")) json.getJSONArray("items")
-            else JSONArray(result.body)
-            val out = ArrayList<PlayRecord>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                out.add(
-                    PlayRecord(
-                        source = o.optString("source", ""),
-                        id = o.optString("id", o.optString("vod_id", "")),
-                        episodeIndex = o.optInt("episodeIndex", o.optInt("episode_index", 0)),
-                        playTimeMs = o.optLong("playTimeMs", o.optLong("play_time_ms", 0L)),
-                        totalMs = o.optLong("totalMs", o.optLong("total_ms", 0L)),
-                        title = o.optString("title", o.optString("vod_name", "")),
-                        cover = o.optString("cover", o.optString("vod_pic", null))
-                    )
-                )
-            }
-            out
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private val sessionCookies = HashMap<String, String>()
-    private val requestCookies = HashMap<String, String>()
-
     fun clearAuth() {
-        sessionCookies.clear()
-        requestCookies.clear()
+        authToken = null
         isLoggedIn = false
+    }
+
+    /** 供 App 层持久化 token */
+    fun currentAuth(): String? = authToken
+
+    fun restoreAuth(token: String) {
+        authToken = token
+        isLoggedIn = true
+    }
+
+    fun markLoggedIn() {
+        isLoggedIn = true
     }
 
     /** GET /api/search?q=... */
@@ -196,15 +130,25 @@ class ApiClient(private var baseUrl: String) {
     /** 首页：按类型拉区块（对齐前端 /api/douban?type=..&tag=..&pageSize=..） */
     fun douban(type: String, tag: String, pageSize: Int = 12): List<VideoItem> {
         return try {
-            val url = buildUrl("api/douban", mapOf("type" to type, "tag" to tag, "pageSize" to pageSize.toString()))
+            val url = buildUrl("api/douban", mapOf(
+                "type" to type,
+                "tag" to tag,
+                "pageSize" to pageSize.toString()
+            ))
             val result = httpGet(url)
             if (!result.success) return emptyList()
-            val json = JSONObject(result.body)
-            // /api/douban 直接返回数组或带 list 字段
-            val arr = if (json.isNull("list")) json.optJSONArray("*") ?: JSONArray() else json.optJSONArray("list")
+            val trimmed = result.body.trim()
+            val arr: JSONArray = if (trimmed.startsWith("[")) {
+                JSONArray(trimmed)
+            } else {
+                val json = JSONObject(trimmed)
+                json.optJSONArray("list")
+                    ?: json.optJSONArray("items")
+                    ?: json.optJSONArray("results")
+                    ?: JSONArray()
+            }
             if (arr.length() > 0) return parseItems(arr)
-            // 兜底：整个 body 可能就是数组
-            return parseItems(JSONArray(result.body))
+            parseItems(JSONArray(result.body))
         } catch (e: Exception) {
             emptyList()
         }
@@ -228,6 +172,63 @@ class ApiClient(private var baseUrl: String) {
         return "$baseUrl/api/proxy/vod/m3u8?url=$encoded&source=${URLEncoder.encode(source, "UTF-8")}"
     }
 
+    /** 保存播放进度：POST /api/playrecords */
+    fun savePlayRecord(record: PlayRecord) {
+        try {
+            val url = buildUrl("api/playrecords")
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("User-Agent", "MoonTVNativeTV/1.0")
+            val token = authToken
+            if (!token.isNullOrBlank()) conn.setRequestProperty("Cookie", "auth=$token")
+            val body = JSONObject().apply {
+                put("source", record.source)
+                put("id", record.id)
+                put("episodeIndex", record.episodeIndex)
+                put("position", record.playTimeMs)
+                put("duration", record.totalMs)
+                put("title", record.title)
+            }.toString()
+            conn.outputStream.write(body.toByteArray())
+            conn.responseCode
+            conn.disconnect()
+        } catch (_: Exception) {}
+    }
+
+    /** 获取继续观看列表：GET /api/playrecords */
+    fun getContinueWatching(): List<PlayRecord> {
+        return try {
+            val url = buildUrl("api/playrecords")
+            val result = httpGet(url)
+            if (!result.success) return emptyList()
+            val trimmed = result.body.trim()
+            val arr: JSONArray = if (trimmed.startsWith("[")) JSONArray(trimmed)
+            else JSONObject(trimmed).optJSONArray("list") ?: JSONArray()
+            val out = ArrayList<PlayRecord>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.add(
+                    PlayRecord(
+                        source = o.optString("source", ""),
+                        id = o.optString("id", o.optString("vod_id", "")),
+                        episodeIndex = o.optInt("episodeIndex", o.optInt("episode_index", 0)),
+                        playTimeMs = o.optLong("position", o.optLong("playTimeMs", 0L)),
+                        totalMs = o.optLong("duration", o.optLong("totalMs", 0L)),
+                        title = o.optString("title", o.optString("vod_name", "")),
+                        cover = o.optString("cover", o.optString("vod_pic", null))
+                    )
+                )
+            }
+            out
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     private fun httpGet(url: String): HttpResult {
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
@@ -235,9 +236,11 @@ class ApiClient(private var baseUrl: String) {
             conn.readTimeout = 30000
             conn.requestMethod = "GET"
             conn.setRequestProperty("User-Agent", "MoonTVNativeTV/1.0")
-            val cookieHeader = requestCookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
-            if (cookieHeader.isNotEmpty()) {
-                conn.setRequestProperty("Cookie", cookieHeader)
+            conn.setRequestProperty("Accept", "application/json")
+            // 关键：带上鉴权 cookie
+            val token = authToken
+            if (!token.isNullOrBlank()) {
+                conn.setRequestProperty("Cookie", "auth=$token")
             }
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -261,12 +264,12 @@ class ApiClient(private var baseUrl: String) {
                     id = id,
                     source = source,
                     title = o.optString("title", o.optString("vod_name", "")),
-                    year = o.optString("year", o.optString("vod_year", null)),
+                    year = o.optString("year", o.optString("vod_year", "")),
                     cover = o.optString("cover", o.optString("pic", o.optString("vod_pic", ""))).ifEmpty { null },
-                    desc = o.optString("desc", o.optString("content", null)),
-                    type = o.optString("type", null),
-                    typeName = o.optString("type_name", null),
-                    score = o.optString("score", o.optString("douban_score", null)),
+                    desc = o.optString("desc", o.optString("content", "")),
+                    type = o.optString("type", ""),
+                    typeName = o.optString("type_name", ""),
+                    score = o.optString("score", o.optString("douban_score", "")),
                     episodeCount = o.optInt("episode_count", -1).takeIf { it >= 0 }
                 )
             )
@@ -290,8 +293,8 @@ class ApiClient(private var baseUrl: String) {
         return VideoDetail(
             title = title,
             cover = item?.optString("cover", json.optString("cover", ""))?.ifEmpty { null },
-            desc = item?.optString("desc", json.optString("desc", null)),
-            year = item?.optString("year", json.optString("year", null)),
+            desc = item?.optString("desc", json.optString("desc", "")),
+            year = item?.optString("year", json.optString("year", "")),
             episodes = episodes
         )
     }

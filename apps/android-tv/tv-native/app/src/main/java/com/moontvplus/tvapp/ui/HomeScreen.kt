@@ -6,11 +6,9 @@ import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -24,43 +22,49 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * 首页：多行海报网格。遥控方向键由系统焦点框架驱动（不手动拦截）。
+ * - 每行 = 一个类型（电影/剧集/动漫）
+ * - 行内 4 列海报网格
+ * - 加载失败会显示可读原因（不再是无提示的"暂无数据"）
+ */
 class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit) :
     FrameLayout(context) {
 
     private val rows = mutableListOf<Pair<String, RecyclerView>>()
     private val titleView = TextView(context)
-    private val statusBar = TextView(context)
+    private val statusView = TextView(context)
     private val loading = ProgressBar(context)
+    private val listLayout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val scope = CoroutineScope(Dispatchers.Main)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     init {
         setBackgroundColor(Color.parseColor("#0A0A14"))
+        descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        isFocusableInTouchMode = false
 
         titleView.text = "MoonTV Plus"
         titleView.textSize = 34f
         titleView.setTextColor(Color.WHITE)
-        titleView.typeface = android.graphics.Typeface.DEFAULT_BOLD
         titleView.gravity = Gravity.CENTER
+        titleView.isFocusable = false
         addView(titleView, LayoutParams(LayoutParams.MATCH_PARENT, (64 * density()).toInt()))
 
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        addView(list, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        statusView.text = "正在加载首页…"
+        statusView.textSize = 18f
+        statusView.setTextColor(Color.parseColor("#AAAAFF"))
+        statusView.gravity = Gravity.CENTER
+        statusView.isFocusable = true
+        addView(statusView, LayoutParams(LayoutParams.MATCH_PARENT, (48 * density()).toInt(), Gravity.CENTER))
 
-        loading.visibility = View.VISIBLE
+        listLayout.setPadding((24 * density()).toInt(), 0, (24 * density()).toInt(), (24 * density()).toInt())
+        addView(listLayout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.BOTTOM))
+
         loading.isIndeterminate = true
-
-        // 遥控：方向键在 RecyclerView 行之间切换焦点
-        isFocusable = true
-        isFocusableInTouchMode = false
-        setOnKeyListener { _, keyCode, event ->
-            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
-                if (handleNav(keyCode)) return@setOnKeyListener true
-            }
-            false
-        }
+        loading.isFocusable = false
+        addView(loading, LayoutParams((72 * density()).toInt(), (72 * density()).toInt(), Gravity.CENTER))
 
         load()
     }
@@ -70,42 +74,42 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
     private fun load() {
         loading.visibility = View.VISIBLE
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                val sections = mutableListOf<HomeSection>()
+            val (sections, error) = withContext(Dispatchers.IO) {
+                val list = mutableListOf<HomeSection>()
+                var err: String? = null
                 val kinds = listOf("movie" to "热门电影", "tv" to "剧集", "anime" to "动漫")
                 for ((kind, label) in kinds) {
-                    try {
-                        val items = App.client.douban(kind, "热门", 12)
-                        if (items.isNotEmpty()) sections.add(HomeSection(label, items))
-                    } catch (_: Exception) {}
+                    val items = try {
+                        App.client.douban(kind, "热门", 12)
+                    } catch (e: Exception) {
+                        err = "${label} 加载失败：" + (e.message ?: "网络错误"); emptyList()
+                    }
+                    if (items.isNotEmpty()) list.add(HomeSection(label, items))
                 }
-                sections
+                list to err
             }
-            buildRows(result)
             loading.visibility = View.GONE
+            if (sections.isEmpty()) {
+                // 有错误就显示原因，否则提示后台没配源
+                statusView.text = error ?: "暂无数据（后台请至少配置一个影视源 / 豆瓣源）"
+                statusView.visibility = View.VISIBLE
+                return@launch
+            }
+            statusView.visibility = View.GONE
+            buildRows(sections)
+            // 关键：首行第一个海报请求焦点，让遥控方向键从此生效
+            mainHandler.postDelayed({
+                firstFocusable()?.requestFocus()
+            }, 120L)
         }
     }
 
     private fun buildRows(sections: List<HomeSection>) {
-        val list = (getChildAt(1) as LinearLayout)
-        list.removeAllViews()
+        listLayout.removeAllViews()
         rows.clear()
-
-        if (sections.isEmpty()) {
-            val empty = TextView(context).apply {
-                text = "暂无数据（检查服务器配置是否有资源站）"
-                setTextColor(Color.WHITE); textSize = 18f
-                gravity = Gravity.CENTER
-            }
-            val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-            list.addView(empty, lp)
-            return
-        }
-
         sections.forEach { s ->
             val row = buildRow(s)
-            val lp = LayoutParams(LayoutParams.MATCH_PARENT, (420 * density()).toInt())
-            list.addView(row, lp)
+            listLayout.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, (420 * density()).toInt()))
         }
     }
 
@@ -117,46 +121,36 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
             textSize = 20f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding((24 * density()).toInt(), (16 * density()).toInt(), 0, (8 * density()).toInt())
+            setPadding(0, (16 * density()).toInt(), 0, (8 * density()).toInt())
+            isFocusable = false
         }
 
-        val rv = object : RecyclerView(context) {
-            init {
-                layoutManager = GridLayoutManager(context, 4)
-                setHasFixedSize(true)
-                adapter = PosterAdapter(section.items, onOpenDetail)
-                isFocusable = true
-                isFocusableInTouchMode = true
-                overScrollMode = View.OVER_SCROLL_NEVER
-            }
+        val rv = RecyclerView(context).apply {
+            layoutManager = GridLayoutManager(context, 4)
+            setHasFixedSize(false)
+            adapter = PosterAdapter(section.items, onOpenDetail)
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isFocusable = true
+            isFocusableInTouchMode = false
+            // 行内焦点：进 to 网格第一个 item，再靠系统左右上下移动
+            focusable = true
         }
 
-        container.addView(header)
-        container.addView(rv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        container.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        container.addView(rv, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (320 * density()).toInt()
+        ))
         rows.add(section.title to rv)
         return container
     }
 
-    /** 遥控方向键导航：上下在行间切换，左右交给 RecyclerView 内部 */
-    private fun handleNav(keyCode: Int): Boolean {
-        when (keyCode) {
-            android.view.KeyEvent.KEYCODE_DPAD_DOWN,
-            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                val idx = rows.indexOfFirst { it.second.isFocused || it.second.hasFocus() }
-                val target = if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
-                    (idx + 1).coerceAtLeast(0)
-                } else {
-                    (idx - 1).coerceAtLeast(0)
-                }
-                if (target in rows.indices) {
-                    val recycler = rows[target].second
-                    recycler.requestFocus()
-                    mainHandler.postDelayed({ recycler.requestFocus() }, 50)
-                    return true
-                }
-            }
-        }
-        return false
+    /** 找第一个可请求焦点的 View（首页首行首卡片） */
+    private fun firstFocusable(): View? {
+        return if (rows.isNotEmpty()) {
+            rows[0].second
+        } else statusView
     }
 
     /** 海报网格适配器 */
@@ -169,7 +163,7 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
             val card = PosterCardView(parent.context)
             card.layoutParams = RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (320 * parent.resources.displayMetrics.density).toInt()
+                (300 * parent.resources.displayMetrics.density).toInt()
             )
             return VH(card)
         }
@@ -178,41 +172,40 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
             val item = items[position]
             holder.card.bind(item)
             holder.card.setOnClickListener { onOpen(item) }
-            holder.card.setOnLongClickListener { true }
+            holder.card.setOnLongClickListener { onOpen(item); true }
         }
 
         override fun getItemCount() = items.size
     }
 
-    /** 海报卡片（异步加载封面） */
+    /** 海报卡片（异步加载封面 + 焦点高亮） */
     class PosterCardView(context: Context) : FrameLayout(context) {
         private fun density(): Float = context.resources.displayMetrics.density
         private val cover = ImageView(context).apply {
-            adjustViewBounds = true
             scaleType = ImageView.ScaleType.CENTER_CROP
-            layoutParams = LayoutParams(
-                LayoutParams.MATCH_PARENT,
-                (300 * context.resources.displayMetrics.density).toInt()
-            )
+            adjustViewBounds = false
         }
         private val info = TextView(context).apply {
-            setTextColor(Color.WHITE); textSize = 14f
+            setTextColor(Color.WHITE); textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(8, 8, 8, 8)
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
+            setPadding(6, 6, 6, 6)
+            maxLines = 2
         }
         private var loadedUrl: String? = null
 
         init {
-            setPadding((16 * density()).toInt(), 0, (16 * density()).toInt(), (8 * density()).toInt())
-            addView(cover, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            val pad = (12 * density()).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(cover, LayoutParams(LayoutParams.MATCH_PARENT, (260 * density()).toInt(), Gravity.TOP))
             addView(info, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
             setBackgroundColor(Color.parseColor("#1A1A2E"))
             isFocusable = true
-            isFocusableInTouchMode = true
+            isFocusableInTouchMode = false
             setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) setBackgroundColor(Color.parseColor("#3366FFFF"))
-                else setBackgroundColor(Color.parseColor("#1A1A2E"))
+                setBackgroundColor(if (hasFocus) Color.parseColor("#4488FFFF") else Color.parseColor("#1A1A2E"))
+                val params = layoutParams
+                val scale = if (hasFocus) 1.08f else 1.0f
+                animate().scaleX(scale).scaleY(scale).setDuration(120).start()
             }
         }
 

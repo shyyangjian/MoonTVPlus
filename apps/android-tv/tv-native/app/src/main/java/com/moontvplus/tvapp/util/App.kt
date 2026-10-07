@@ -38,13 +38,14 @@ object App {
     }
 
     fun login(username: String?, password: String, onResult: (Boolean, String?) -> Unit) {
-        if (!ctxReady) attach(null as Context?)
+        if (!ctxReady) return
         CoroutineScope(Dispatchers.IO).launch {
             val ok = client.login(username, password)
             val prefs = ctx.getSharedPreferences("moontv", 0)
             if (ok) {
+                val token = client.currentAuth() ?: ""
                 prefs.edit()
-                    .putString("auth_token", client.currentAuth ?: "")
+                    .putString("auth_token", token)
                     .putBoolean("logged_in", true)
                     .apply()
             }
@@ -72,6 +73,7 @@ object App {
     // ---- 播放进度 ----
 
     fun savePlayRecord(record: PlayRecord) {
+        if (!ctxReady) return
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 client.savePlayRecord(record)
@@ -80,6 +82,7 @@ object App {
     }
 
     fun getContinueWatching(): List<PlayRecord> {
+        if (!ctxReady) return emptyList()
         return runCatching {
             client.getContinueWatching()
         }.getOrDefault(emptyList())
