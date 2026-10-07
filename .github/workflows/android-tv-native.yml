@@ -45,10 +45,17 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null 2>&1
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          # 显式告诉 gradle 在哪找 SDK（AGP 靠 local.properties 或 ANDROID_HOME）
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          # tv-native 子模块也写一份
+          echo "sdk.dir=$ANDROID_HOME" > tv-native/local.properties 2>/dev/null || true
 
       - name: Build APK
         working-directory: apps/android-tv
         run: |
+          # 清理可能从 git 带过来的旧 local.properties（指向本地 /opt 路径）
+          rm -f local.properties
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
           gradle :tv-native:app:assembleDebug \
             -PBASE_URL="${{ inputs.base_url }}"
 
