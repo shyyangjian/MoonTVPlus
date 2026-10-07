@@ -85,7 +85,7 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
                     err = e ?: err
                     if (items.isNotEmpty()) list.add(HomeSection(label, items))
                 }
-                list to err to reauth
+                Triple(list, err, reauth)
             }
             loading.visibility = View.GONE
             if (needReauth) {
