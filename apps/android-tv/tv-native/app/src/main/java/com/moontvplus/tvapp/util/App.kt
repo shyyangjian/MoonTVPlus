@@ -30,15 +30,15 @@ object App {
     }
 
     /** 供 Activity 在 init 之前预存 context（login 前调用） */
-    fun attach(context: Context) {
-        if (!ctxReady) {
+    fun attach(context: Context?) {
+        if (!ctxReady && context != null) {
             ctx = context.applicationContext
             ctxReady = true
         }
     }
 
     fun login(username: String?, password: String, onResult: (Boolean, String?) -> Unit) {
-        attach(ctx)
+        if (!ctxReady) attach(null as Context?)
         CoroutineScope(Dispatchers.IO).launch {
             val ok = client.login(username, password)
             val prefs = ctx.getSharedPreferences("moontv", 0)
