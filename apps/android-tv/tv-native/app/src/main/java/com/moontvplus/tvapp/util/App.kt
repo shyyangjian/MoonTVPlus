@@ -1,7 +1,7 @@
-package com.moontvplus.native.util
+package com.moontvplus.tvapp.util
 
 import android.content.Context
-import com.moontvplus.native.data.ApiClient
+import com.moontvplus.tvapp.data.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

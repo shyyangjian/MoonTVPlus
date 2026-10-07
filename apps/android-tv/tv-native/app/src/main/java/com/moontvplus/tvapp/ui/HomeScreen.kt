@@ -1,4 +1,4 @@
-package com.moontvplus.native.ui
+package com.moontvplus.tvapp.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -17,9 +17,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.moontvplus.native.data.HomeSection
-import com.moontvplus.native.data.VideoItem
-import com.moontvplus.native.util.App
+import com.moontvplus.tvapp.data.HomeSection
+import com.moontvplus.tvapp.data.VideoItem
+import com.moontvplus.tvapp.util.App
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

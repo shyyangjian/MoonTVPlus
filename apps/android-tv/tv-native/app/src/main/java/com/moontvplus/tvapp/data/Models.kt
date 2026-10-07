@@ -1,4 +1,4 @@
-package com.moontvplus.native.data
+package com.moontvplus.tvapp.data
 
 /** 搜索结果/列表项（对齐后端 /api/search 的 results[] 字段） */
 data class VideoItem(

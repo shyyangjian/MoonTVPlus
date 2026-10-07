@@ -1,4 +1,4 @@
-package com.moontvplus.native.ui
+package com.moontvplus.tvapp.ui
 
 import android.app.Activity
 import android.content.Context
@@ -10,9 +10,9 @@ import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.TextView
-import com.moontvplus.native.data.VideoItem
-import com.moontvplus.native.util.App
-import com.moontvplus.native.util.TVFocus
+import com.moontvplus.tvapp.data.VideoItem
+import com.moontvplus.tvapp.util.App
+import com.moontvplus.tvapp.util.TVFocus
 
 /**
  * 登录页（纯原生 View，遥控焦点驱动）。

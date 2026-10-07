@@ -6,11 +6,11 @@ plugins {
 val rawBaseUrl = (project.findProperty("BASE_URL") as String?) ?: "https://ltv.860527.xyz:88"
 
 android {
-    namespace = "com.moontvplus.native"
+    namespace = "com.moontvplus.tvapp"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.moontvplus.native"
+        applicationId = "com.moontvplus.tvapp"
         minSdk = 23
         targetSdk = 35
         versionCode = 1

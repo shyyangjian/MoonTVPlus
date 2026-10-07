@@ -1,4 +1,4 @@
-package com.moontvplus.native.util
+package com.moontvplus.tvapp.util
 
 import android.app.Activity
 import android.content.Context

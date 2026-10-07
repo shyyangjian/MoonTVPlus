@@ -1,4 +1,4 @@
-package com.moontvplus.native.ui
+package com.moontvplus.tvapp.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -13,10 +13,10 @@ import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.ui.PlayerControlView
 import com.google.android.exoplayer2.ui.PlayerView
-import com.moontvplus.native.data.VideoDetail
-import com.moontvplus.native.data.VideoItem
-import com.moontvplus.native.util.App
-import com.moontvplus.native.util.TVFocus
+import com.moontvplus.tvapp.data.VideoDetail
+import com.moontvplus.tvapp.data.VideoItem
+import com.moontvplus.tvapp.util.App
+import com.moontvplus.tvapp.util.TVFocus
 
 /**
  * 播放页：ExoPlayer（HLS）拉 m3u8 代理。

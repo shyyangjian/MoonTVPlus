@@ -1,4 +1,4 @@
-package com.moontvplus.native
+package com.moontvplus.tvapp
 
 import android.app.Activity
 import android.graphics.Color
@@ -7,13 +7,13 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import com.moontvplus.native.data.VideoDetail
-import com.moontvplus.native.data.VideoItem
-import com.moontvplus.native.ui.DetailScreen
-import com.moontvplus.native.ui.HomeScreen
-import com.moontvplus.native.ui.LoginScreen
-import com.moontvplus.native.ui.PlayScreen
-import com.moontvplus.native.util.App
+import com.moontvplus.tvapp.data.VideoDetail
+import com.moontvplus.tvapp.data.VideoItem
+import com.moontvplus.tvapp.ui.DetailScreen
+import com.moontvplus.tvapp.ui.HomeScreen
+import com.moontvplus.tvapp.ui.LoginScreen
+import com.moontvplus.tvapp.ui.PlayScreen
+import com.moontvplus.tvapp.util.App
 
 class MainActivity : Activity() {
 

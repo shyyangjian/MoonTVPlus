@@ -1,4 +1,4 @@
-package com.moontvplus.native.data
+package com.moontvplus.tvapp.data
 
 import java.net.CookieManager
 import java.net.CookiePolicy
