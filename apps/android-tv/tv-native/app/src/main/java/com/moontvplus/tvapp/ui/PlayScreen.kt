@@ -14,6 +14,7 @@ import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.PlayerView
 import com.google.android.exoplayer2.util.C
+import com.google.android.exoplayer2.util.C
 import com.moontvplus.tvapp.data.VideoDetail
 import com.moontvplus.tvapp.data.VideoItem
 import com.moontvplus.tvapp.util.App
@@ -109,7 +110,7 @@ class PlayScreen(
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    statusLabel.text = "播放失败：" + (error.errorMessage?.toString() ?: "未知错误")
+                    statusLabel.text = "播放失败：" + (error.localMessage ?: "未知错误")
                     statusLabel.setTextColor(Color.parseColor("#FF6B6B"))
                 }
                 override fun onIsPlayingChanged(isPlayingNow: Boolean) {
@@ -128,13 +129,13 @@ class PlayScreen(
                 return true
             }
             android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                val newSpeed = (player.playbackSpeed + 0.5f).coerceIn(0.5f, 4f)
+                val newSpeed = (player.playbackParameters.speed + 0.5f).coerceIn(0.5f, 4f)
                 player.setPlaybackSpeed(newSpeed)
                 statusLabel.text = "倍速：${newSpeed}x"
                 return true
             }
             android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                val newSpeed = (player.playbackSpeed - 0.5f).coerceIn(0.5f, 4f)
+                val newSpeed = (player.playbackParameters.speed - 0.5f).coerceIn(0.5f, 4f)
                 player.setPlaybackSpeed(newSpeed)
                 statusLabel.text = "倍速：${newSpeed}x"
                 return true

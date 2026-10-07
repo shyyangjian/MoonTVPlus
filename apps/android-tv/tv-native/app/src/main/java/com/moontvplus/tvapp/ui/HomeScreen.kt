@@ -54,8 +54,13 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
 
         // 遥控：方向键在 RecyclerView 行之间切换焦点
         isFocusable = true
-        isFocusableInTouchMode = true
-        setOnKeyListener { _, event -> handleNav(event) }
+        isFocusableInTouchMode = false
+        setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                if (handleNav(keyCode)) return@setOnKeyListener true
+            }
+            false
+        }
 
         load()
     }
@@ -133,15 +138,15 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
     }
 
     /** 遥控方向键导航：上下在行间切换，左右交给 RecyclerView 内部 */
-    private fun handleNav(event: KeyEvent): Boolean {
-        if (event.action != KeyEvent.ACTION_DOWN) return false
-        when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_UP -> {
-                val idx = rows.indexOfFirst { it.second.hasFocus() || it.second.descendantFocusability == ViewGroup.FOCUS_AFTER_DESCENDANTS && it.second.isFocused }
-                val target = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+    private fun handleNav(keyCode: Int): Boolean {
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                val idx = rows.indexOfFirst { it.second.isFocused || it.second.hasFocus() }
+                val target = if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
                     (idx + 1).coerceAtLeast(0)
                 } else {
-                    (idx - 1).coerceIn(0, rows.size - 1).takeIf { it >= 0 } ?: 0
+                    (idx - 1).coerceAtLeast(0)
                 }
                 if (target in rows.indices) {
                     val recycler = rows[target].second

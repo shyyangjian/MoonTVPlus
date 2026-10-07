@@ -49,7 +49,7 @@ class ApiClient(private var baseUrl: String) {
     private fun normalize(url: String): String {
         var u = url.trim()
         if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
-        while (u.endsWith("/")) u = u.dropLast()
+        while (u.endsWith("/")) u = u.dropLast(1)
         return u
     }
 
