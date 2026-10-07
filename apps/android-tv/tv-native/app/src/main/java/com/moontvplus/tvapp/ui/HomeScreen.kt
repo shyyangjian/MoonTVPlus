@@ -133,7 +133,7 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
             isFocusable = true
             isFocusableInTouchMode = false
             // 行内焦点：进 to 网格第一个 item，再靠系统左右上下移动
-            focusable = true
+            isFocusable = true
         }
 
         container.addView(header, LinearLayout.LayoutParams(

@@ -76,7 +76,7 @@ class ApiClient(private var baseUrl: String) {
                     authToken = json.optString("token", "").ifEmpty {
                         // 兜底：从 Set-Cookie 头解析 auth
                         conn.getHeaderFields()["Set-Cookie"]?.firstOrNull()
-                            ?.substringAfter('auth=')?.substringBefore(';') ?: ""
+                            ?.substringAfter("auth=")?.substringBefore(';') ?: ""
                     }
                     isLoggedIn = true
                     loginError = null
