@@ -24,6 +24,22 @@ class ApiClient(private var baseUrl: String) {
     @Volatile var isLoggedIn: Boolean = false
         private set
     @Volatile var loginError: String? = null
+    @Volatile var currentAuth: String? = null
+
+    fun markLoggedIn() {
+        isLoggedIn = true
+    }
+
+    fun restoreAuth(cookie: String) {
+        currentAuth = cookie
+        val cookies = cookie.split(";").map { it.trim() }
+        cookies.forEach { c ->
+            val name = c.substringBefore("=", "")
+            val value = c.substringAfter("=", "").substringBefore(" ")
+            if (name.isNotEmpty()) requestCookies[name] = value
+        }
+        isLoggedIn = true
+    }
 
     fun setBaseUrl(url: String) {
         baseUrl = normalize(url)
@@ -70,18 +86,16 @@ class ApiClient(private var baseUrl: String) {
             val resp = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.readText()
 
-            // 把 Set-Cookie 存进 cookieManager，后续请求自动带上
+            // 把 Set-Cookie 存进内存，后续请求自动带上
             try {
                 val cookies = conn.getHeaderFields()["Set-Cookie"]
                 cookies?.forEach { cookieStr ->
-                    val name = cookieStr.substringBefore('=')
+                    val name = cookieStr.substringBefore('=', "")
                     val value = cookieStr.substringAfter('=', "").substringBefore(';')
-                    cookieManager.getCookiePolicy().let { _ }
-                    // 简化：用内存 store 记录
-                    sessionCookies["$name"] = value
-                    requestCookies["$name"] = value
+                    sessionCookies[name] = value
+                    requestCookies[name] = value
                 }
-            } catch (_: Exception) {}
+            } catch (ignored: Exception) {}
 
             if (code in 200..299) {
                 isLoggedIn = true
@@ -95,6 +109,64 @@ class ApiClient(private var baseUrl: String) {
         } catch (e: Exception) {
             loginError = e.message
             false
+        }
+    }
+
+    /** 保存播放进度：POST /api/watch-history 或存本地 */
+    fun savePlayRecord(record: PlayRecord) {
+        try {
+            val url = buildUrl("api/watch-history/save")
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("User-Agent", "MoonTVNativeTV/1.0")
+            val cookieHeader = requestCookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+            if (cookieHeader.isNotEmpty()) conn.setRequestProperty("Cookie", cookieHeader)
+            val body = JSONObject().apply {
+                put("source", record.source)
+                put("id", record.id)
+                put("episodeIndex", record.episodeIndex)
+                put("playTimeMs", record.playTimeMs)
+                put("totalMs", record.totalMs)
+                put("title", record.title)
+            }.toString()
+            conn.outputStream.write(body.toByteArray())
+            conn.responseCode
+            conn.disconnect()
+        } catch (_: Exception) {}
+    }
+
+    /** 获取继续观看列表：GET /api/watch-history */
+    fun getContinueWatching(): List<PlayRecord> {
+        return try {
+            val url = buildUrl("api/watch-history")
+            val result = httpGet(url)
+            if (!result.success) return emptyList()
+            val json = JSONObject(result.body)
+            val arr = if (json.has("list")) json.getJSONArray("list")
+            else if (json.has("items")) json.getJSONArray("items")
+            else JSONArray(result.body)
+            val out = ArrayList<PlayRecord>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.add(
+                    PlayRecord(
+                        source = o.optString("source", ""),
+                        id = o.optString("id", o.optString("vod_id", "")),
+                        episodeIndex = o.optInt("episodeIndex", o.optInt("episode_index", 0)),
+                        playTimeMs = o.optLong("playTimeMs", o.optLong("play_time_ms", 0L)),
+                        totalMs = o.optLong("totalMs", o.optLong("total_ms", 0L)),
+                        title = o.optString("title", o.optString("vod_name", "")),
+                        cover = o.optString("cover", o.optString("vod_pic", null))
+                    )
+                )
+            }
+            out
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 

@@ -1,7 +1,9 @@
 package com.moontvplus.tvapp.util
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.moontvplus.tvapp.data.ApiClient
+import com.moontvplus.tvapp.data.PlayRecord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -22,7 +24,12 @@ object App {
         client = ApiClient(savedUrl)
         val token = prefs.getString("auth_token", null)
         if (token != null) client.restoreAuth(token)
-        if (prefs.getBoolean("logged_in", false)) client.isLoggedIn = true
+        if (prefs.getBoolean("logged_in", false)) client.markLoggedIn()
+    }
+
+    /** 供 Activity 在 init 之前预存 context */
+    fun attach(context: Context) {
+        if (ctx == null || !::ctx.isInitialized) ctx = context.applicationContext
     }
 
     fun login(username: String?, password: String, onResult: (Boolean, String?) -> Unit) {
@@ -31,7 +38,7 @@ object App {
             val prefs = ctx.getSharedPreferences("moontv", 0)
             if (ok) {
                 prefs.edit()
-                    .putString("auth_token", client.getToken())
+                    .putString("auth_token", client.currentAuth)
                     .putBoolean("logged_in", true)
                     .apply()
             }
@@ -50,5 +57,26 @@ object App {
     fun saveUrl(url: String) {
         ctx.getSharedPreferences("moontv", 0).edit().putString("base_url", url).apply()
         client.setBaseUrl(url)
+        baseUrl = url
+    }
+
+    fun isLoggedIn(): Boolean = client.isLoggedIn
+
+    // ---- 播放进度 ----
+
+    fun savePlayRecord(record: PlayRecord) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val client = com.moontvplus.tvapp.data.ApiClient(baseUrl)
+                client.savePlayRecord(record)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun getContinueWatching(): List<PlayRecord> {
+        return runCatching {
+            val client = com.moontvplus.tvapp.data.ApiClient(baseUrl)
+            client.getContinueWatching()
+        }.getOrDefault(emptyList())
     }
 }

@@ -1,7 +1,6 @@
 package com.moontvplus.tvapp
 
 import android.app.Activity
-import android.graphics.Color
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -18,9 +17,9 @@ import com.moontvplus.tvapp.util.App
 class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
+    private var currentPlayScreen: PlayScreen? = null
 
-    @Override
-    protected fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         App.attach(this)
         App.init(this, BuildConfig.BASE_URL)
@@ -39,14 +38,10 @@ class MainActivity : Activity() {
         )
 
         root = FrameLayout(this)
+        root.setBackgroundColor(android.graphics.Color.parseColor("#0A0A14"))
         setContentView(root)
-        root.setBackgroundColor(Color.parseColor("#0A0A14"))
 
-        if (App.client.isLoggedIn) {
-            showHome()
-        } else {
-            showLogin()
-        }
+        if (App.client.isLoggedIn) showHome() else showLogin()
     }
 
     private fun showLogin() {
@@ -58,6 +53,11 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
+        currentPlayScreen?.let {
+            it.release()
+            it.saveProgress()
+            currentPlayScreen = null
+        }
         val home = HomeScreen(this) { item -> showDetail(item) }
         root.removeAllViews()
         root.addView(home, FrameLayout.LayoutParams(
@@ -74,21 +74,46 @@ class MainActivity : Activity() {
     }
 
     private fun showPlay(item: VideoItem, ep: VideoDetail.Episode) {
-        val play = PlayScreen(this, item, ep) { showHome() }
+        currentPlayScreen = PlayScreen(this, item, ep).also { it.releaseOnExit = { showHome() } }
+        val play = currentPlayScreen!!
         root.removeAllViews()
         root.addView(play, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
         ))
     }
 
-    @Override
-    fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        // 让当前屏自己处理按键
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event?.action == KeyEvent.ACTION_DOWN) {
+            when {
+                currentPlayScreen != null -> {
+                    currentPlayScreen?.let {
+                        it.release()
+                        it.saveProgress()
+                        currentPlayScreen = null
+                    }
+                    showDetailFromBackStack()
+                    return true
+                }
+                // 如果在详情页，返回到首页
+                else -> {
+                    // 简单判断：如果不在登录页就回首页
+                    if (App.client.isLoggedIn) {
+                        showHome()
+                    }
+                    return true
+                }
+            }
+        }
         return super.onKeyDown(keyCode, event)
     }
 
-    @Override
-    protected fun onDestroy() {
+    /** 简化版：返回栈通过 root 当前 child 类型判断 */
+    private fun showDetailFromBackStack() {
+        showHome()
+    }
+
+    override fun onDestroy() {
+        currentPlayScreen?.release()
         super.onDestroy()
     }
 }

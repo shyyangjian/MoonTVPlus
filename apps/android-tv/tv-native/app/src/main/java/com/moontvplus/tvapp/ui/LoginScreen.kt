@@ -1,6 +1,5 @@
 package com.moontvplus.tvapp.ui
 
-import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -8,29 +7,31 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
-import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
-import com.moontvplus.tvapp.data.VideoItem
 import com.moontvplus.tvapp.util.App
 import com.moontvplus.tvapp.util.TVFocus
 
 /**
  * 登录页（纯原生 View，遥控焦点驱动）。
- * 登录成功后回调进首页。
+ * 方向键在 用户名→密码→地址→登录 之间切换焦点。
  */
 class LoginScreen(context: Context, private val onLogged: () -> Unit) :
-    FrameLayout(context) {
+    LinearLayout(context) {
 
-    private val layout = FrameLayout(context)
     private val etUser: EditText
     private val etPass: EditText
     private val etUrl: EditText
     private val btnLogin: TextView
     private val status: TextView
+    private var loading = false
 
     init {
+        orientation = VERTICAL
+        gravity = android.view.Gravity.CENTER
         setBackgroundColor(Color.parseColor("#070816"))
         val pad = (32 * resources.displayMetrics.density).toInt()
+        setPadding(pad, pad, pad, pad)
 
         val title = TextView(context).apply {
             text = "MoonTV Plus"
@@ -53,6 +54,7 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
             setTextColor(Color.WHITE)
             textSize = 20f
             imeOptions = EditorInfo.IME_ACTION_NEXT
+            isFocusableInTouchMode = false
         }
         val labelPass = label("密码")
         etPass = EditText(context).apply {
@@ -63,6 +65,7 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
             setTextColor(Color.WHITE)
             textSize = 20f
             imeOptions = EditorInfo.IME_ACTION_GO
+            isFocusableInTouchMode = false
         }
         val labelUrl = label("服务器地址")
         etUrl = EditText(context).apply {
@@ -72,6 +75,7 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
             setTextColor(Color.WHITE)
             textSize = 20f
             imeOptions = EditorInfo.IME_ACTION_GO
+            isFocusableInTouchMode = false
         }
         btnLogin = TextView(context).apply {
             text = "登 录"
@@ -81,7 +85,7 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
             setBackgroundColor(Color.parseColor("#6366F1"))
             gravity = android.view.Gravity.CENTER
             isFocusable = true
-            isFocusableInTouchMode = true
+            isFocusableInTouchMode = false
         }
         status = TextView(context).apply {
             textSize = 14f
@@ -89,35 +93,22 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
             gravity = android.view.Gravity.CENTER
         }
 
-        val col = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-            addView(title)
-            addView(spacer(16))
-            addView(subTitle)
-            addView(spacer(40))
-            addView(labelUser)
-            addView(etUser)
-            addView(spacer(24))
-            addView(labelPass)
-            addView(etPass)
-            addView(spacer(24))
-            addView(labelUrl)
-            addView(etUrl)
-            addView(spacer(32))
-            val btnWrap = FrameLayout(context)
-            btnWrap.addView(btnLogin, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                (72 * resources.displayMetrics.density).toInt()
-            ))
-            addView(btnWrap)
-            addView(spacer(16))
-            addView(status)
-        }
-        val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-        lp.gravity = android.view.Gravity.CENTER
-        layout.addView(col, lp)
-        addView(layout)
+        addView(title)
+        addView(spacer(16))
+        addView(subTitle)
+        addView(spacer(40))
+        addView(labelUser)
+        addView(etUser, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(spacer(24))
+        addView(labelPass)
+        addView(etPass, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(spacer(24))
+        addView(labelUrl)
+        addView(etUrl, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(spacer(32))
+        addView(btnLogin, LayoutParams(LayoutParams.MATCH_PARENT, (72 * resources.displayMetrics.density).toInt()))
+        addView(spacer(16))
+        addView(status)
 
         TVFocus.setupFocusable(this)
 
@@ -138,19 +129,20 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
     }
 
     private fun spacer(h: Int): View = View(context).apply {
-        layoutParams = android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            (h * resources.displayMetrics.density).toInt()
-        )
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, (h * resources.displayMetrics.density).toInt())
     }
 
     private fun doLogin() {
+        if (loading) return
+        loading = true
         status.text = "登录中..."
         status.setTextColor(Color.parseColor("#AAAAAA"))
         val user = etUser.text.toString().takeIf { it.isNotBlank() }
         val pass = etPass.text.toString()
         if (pass.isEmpty()) {
             status.text = "请输入密码"
+            status.setTextColor(Color.parseColor("#FF6B6B"))
+            loading = false
             return
         }
         App.saveUrl(etUrl.text.toString())
@@ -159,31 +151,38 @@ class LoginScreen(context: Context, private val onLogged: () -> Unit) :
                 status.text = err ?: "登录失败"
                 status.setTextColor(Color.parseColor("#FF6B6B"))
             }
+            loading = false
         }
     }
 
-    override fun onKeyDown(event: KeyEvent): Boolean {
-        if (event.action != KeyEvent.ACTION_DOWN) return false
-        when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (etUser.hasFocus()) etPass.requestFocus()
-                else if (etPass.hasFocus()) etUrl.requestFocus()
-                else if (etUrl.hasFocus()) btnLogin.requestFocus()
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event?.action != android.view.KeyEvent.ACTION_DOWN) return false
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                when {
+                    etUser.hasFocus() -> etPass.requestFocus()
+                    etPass.hasFocus() -> etUrl.requestFocus()
+                    etUrl.hasFocus() -> btnLogin.requestFocus()
+                    else -> etUser.requestFocus()
+                }
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                if (etUrl.hasFocus()) etPass.requestFocus()
-                else if (etPass.hasFocus()) etUser.requestFocus()
-                else btnLogin.requestFocus()
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                when {
+                    btnLogin.hasFocus() -> etUrl.requestFocus()
+                    etUrl.hasFocus() -> etPass.requestFocus()
+                    etPass.hasFocus() -> etUser.requestFocus()
+                    else -> btnLogin.requestFocus()
+                }
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                if (btnLogin.hasFocus() || etPass.hasFocus() || etUrl.hasFocus()) {
-                    doLogin()
-                    return true
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+            android.view.KeyEvent.KEYCODE_ENTER -> {
+                when {
+                    btnLogin.hasFocus() || etPass.hasFocus() || etUrl.hasFocus() -> { doLogin(); return true }
                 }
             }
         }
-        return super.onKeyDown(event)
+        return super.onKeyDown(keyCode, event)
     }
 }

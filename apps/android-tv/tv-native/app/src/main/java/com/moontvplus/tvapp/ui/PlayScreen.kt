@@ -1,120 +1,177 @@
 package com.moontvplus.tvapp.ui
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.graphics.Color
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import android.widget.TextView
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.ui.PlayerControlView
+import com.google.android.exoplayer2.PlaybackException
+import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.PlayerView
+import com.google.android.exoplayer2.util.C
 import com.moontvplus.tvapp.data.VideoDetail
 import com.moontvplus.tvapp.data.VideoItem
 import com.moontvplus.tvapp.util.App
-import com.moontvplus.tvapp.util.TVFocus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * 播放页：ExoPlayer（HLS）拉 m3u8 代理。
- * 遥控：OK 暂停、上下 ±10s、左右 ±30s、返回退。
+ * 播放页：ExoPlayer 拉 HLS。
+ * 上下方向键调倍速，OK 播放/暂停，返回退出。
  */
-@SuppressLint("ViewConstructor")
-class PlayScreen(context: Context, private val item: VideoItem, private val episode: VideoDetail.Episode, private val onBack: () -> Unit) :
-    FrameLayout(context) {
+class PlayScreen(
+    context: Context,
+    private val item: VideoItem,
+    private val episode: VideoDetail.Episode
+) : FrameLayout(context) {
 
-    private var player: ExoPlayer? = null
-    private val playerView = PlayerView(context)
-    private val status = TextView(context)
-    private var lastEp = 0
+    private val scope = CoroutineScope(Dispatchers.Main)
+    lateinit var player: ExoPlayer
+        private set
+    lateinit var playerView: PlayerView
+        private set
+    private lateinit var statusLabel: TextView
+    private lateinit var playBtn: TextView
+
+    /** 由 Activity 注入，播放页按返回键时回调到首页 */
+    var releaseOnExit: (() -> Unit)? = null
 
     init {
-        setBackgroundColor(Color.BLACK)
+        val root = FrameLayout(context)
+        root.setBackgroundColor(Color.BLACK)
+        addView(root, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
-        val layout = FrameLayout(context)
-        addView(layout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        playerView = PlayerView(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            useController = false
+            resizeMode = C.RESIZE_MODE_FIT
+        }
+        root.addView(playerView)
 
-        layout.addView(playerView, LayoutParams(
-            LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER
+        player = ExoPlayer.Builder(context).build()
+        playerView.player = player
+
+        playBtn = TextView(context).apply {
+            text = "▶ 播放"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#6366F1"))
+            gravity = android.view.Gravity.CENTER
+            isFocusable = true
+            isFocusableInTouchMode = false
+        }
+        root.addView(playBtn, LayoutParams(
+            LayoutParams.WRAP_CONTENT,
+            (64 * context.resources.displayMetrics.density).toInt(),
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
         ))
 
-        status.text = "加载中…"
-        status.setTextColor(Color.WHITE)
-        status.textSize = 16f
-        status.gravity = Gravity.CENTER
-        val lp = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER)
-        layout.addView(status, lp)
+        statusLabel = TextView(context).apply {
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setPadding(
+                (32 * context.resources.displayMetrics.density).toInt(),
+                (16 * context.resources.displayMetrics.density).toInt(),
+                0, 0
+            )
+            alpha = 0.8f
+        }
+        root.addView(statusLabel, LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            (48 * context.resources.displayMetrics.density).toInt(),
+            android.view.Gravity.TOP or android.view.Gravity.START
+        ))
 
-        TVFocus.applyImmersive(context as android.app.Activity)
         isFocusable = true
-        isFocusableInTouchMode = true
-        setOnKeyListener { _, e -> handleKey(e) }
+        isFocusableInTouchMode = false
 
-        start()
+        statusLabel.text = "加载中..."
+        load()
     }
 
-    private fun start() {
-        lastEp = episode.index
-        val m3u8 = App.client.playableM3u8Url(episode.url, item.source)
-        player = ExoPlayer.Builder(context).build().also { p ->
-            playerView.player = p
-            val ctl = PlayerControlView(context)
-            ctl.visibility = View.GONE
-            p.addListener(object : com.google.android.exoplayer2.Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    status.visibility = if (isPlaying) View.GONE else View.VISIBLE
+    private fun load() {
+        scope.launch {
+            val url = withContext(Dispatchers.IO) {
+                App.client.playableM3u8Url(episode.url, item.source)
+            }
+            statusLabel.text = "《${item.title}》 ${if (episode.title.isNullOrBlank()) "第${episode.index}集" else episode.title}"
+
+            val mediaItem = MediaItem.fromUri(url)
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.playWhenReady = true
+            player.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    statusLabel.text = "播放失败：" + (error.errorMessage?.toString() ?: "未知错误")
+                    statusLabel.setTextColor(Color.parseColor("#FF6B6B"))
                 }
-                override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
-                    status.visibility = View.VISIBLE
-                    status.text = "播放失败: ${error.message}"
+                override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                    playBtn.text = if (isPlayingNow) "⏸ 暂停" else "▶ 播放"
                 }
             })
-            val ctlParams = PlayerView.ControllerParams(false)
-            p.playWhenReady = true
         }
-        player?.setMediaItem(MediaItem.fromUri(m3u8))
-        player?.prepare()
     }
 
-    private fun handleKey(event: KeyEvent): Boolean {
-        if (event.action != KeyEvent.ACTION_DOWN) return false
-        when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                player?.let {
-                    if (it.isPlaying) it.pause() else it.play()
-                }
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event?.action != android.view.KeyEvent.ACTION_DOWN) return false
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+            android.view.KeyEvent.KEYCODE_ENTER -> {
+                if (player.isPlaying) player.pause() else player.play()
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                player?.seekTo((player?.currentPosition ?: 0L) + 10_000L)
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                val newSpeed = (player.playbackSpeed + 0.5f).coerceIn(0.5f, 4f)
+                player.setPlaybackSpeed(newSpeed)
+                statusLabel.text = "倍速：${newSpeed}x"
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                player?.seekTo((player?.currentPosition ?: 0L) - 10_000L)
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                val newSpeed = (player.playbackSpeed - 0.5f).coerceIn(0.5f, 4f)
+                player.setPlaybackSpeed(newSpeed)
+                statusLabel.text = "倍速：${newSpeed}x"
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                player?.seekTo((player?.currentPosition ?: 0L) + 30_000L)
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                player?.seekTo((player?.currentPosition ?: 0L) - 30_000L)
-                return true
-            }
-            KeyEvent.KEYCODE_BACK -> {
-                onBack()
+            android.view.KeyEvent.KEYCODE_BACK -> {
+                saveProgress()
+                release()
+                releaseOnExit?.invoke()
                 return true
             }
         }
-        return false
+        return super.onKeyDown(keyCode, event)
     }
 
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        player?.release()
-        player = null
+    fun release() {
+        try { player.release() } catch (_: Exception) {}
     }
+
+    fun saveProgress() {
+        try {
+            val total = player.duration
+            if (total > 0 && total > 10_000L) {
+                App.savePlayRecord(
+                    com.moontvplus.tvapp.data.PlayRecord(
+                        source = item.source,
+                        id = item.id,
+                        episodeIndex = episode.index,
+                        playTimeMs = player.currentPosition,
+                        totalMs = total,
+                        title = item.title,
+                        cover = item.cover
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
+    @SuppressLint("SetTextInLayout")
+    private fun density() = resources.displayMetrics.density
 }

@@ -92,7 +92,7 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
                 setTextColor(Color.WHITE); textSize = 18f
                 gravity = Gravity.CENTER
             }
-            val lp = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
+            val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             list.addView(empty, lp)
             return
         }
@@ -127,7 +127,7 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
         }
 
         container.addView(header)
-        container.addView(rv, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        container.addView(rv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         rows.add(section.title to rv)
         return container
     }
@@ -181,20 +181,26 @@ class HomeScreen(context: Context, private val onOpenDetail: (VideoItem) -> Unit
 
     /** 海报卡片（异步加载封面） */
     class PosterCardView(context: Context) : FrameLayout(context) {
+        private fun density(): Float = context.resources.displayMetrics.density
         private val cover = ImageView(context).apply {
             adjustViewBounds = true
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                (300 * context.resources.displayMetrics.density).toInt()
+            )
         }
         private val info = TextView(context).apply {
             setTextColor(Color.WHITE); textSize = 14f
             gravity = Gravity.CENTER
             setPadding(8, 8, 8, 8)
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
         }
         private var loadedUrl: String? = null
 
         init {
             setPadding((16 * density()).toInt(), 0, (16 * density()).toInt(), (8 * density()).toInt())
-            addView(cover, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(cover, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             addView(info, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
             setBackgroundColor(Color.parseColor("#1A1A2E"))
             isFocusable = true
